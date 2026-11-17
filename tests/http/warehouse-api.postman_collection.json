@@ -1,0 +1,864 @@
+{
+  "info": {
+    "_postman_id": "93c93de1-40ec-41b8-a413-2b2b6bcfaa82",
+    "name": "Warehouse Cloud Platform — Bodega (Fase 1 + Fase 2)",
+    "description": "Ejecutar en orden. La petición 2 guarda productId automáticamente. Mira la cabecera X-Cache en las lecturas de inventario.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Salud de la API (PostgreSQL y Redis)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "2. Crear producto (su inventario inicia en 0). Si ya corriste la colección, cambia el SKU.",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sku\": \"DEMO-GUANTE-001\",\n  \"name\": \"Guantes de carnaza\",\n  \"description\": \"Par de guantes para carga\",\n  \"category\": \"EPP\",\n  \"unit\": \"PAR\",\n  \"supplier\": \"Seguridad Industrial del Valle\",\n  \"lot\": \"L-2026-10-A\",\n  \"supplier_cost\": \"9000\",\n  \"retail_price\": \"16000\",\n  \"wholesale_price\": \"13000\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 201) { pm.collectionVariables.set('productId', pm.response.json().id); }"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. ERROR esperado 409: SKU duplicado",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"sku\": \"DEMO-GUANTE-001\", \"name\": \"Otro\", \"unit\": \"PAR\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "4. ERROR esperado 422: precio negativo y SKU con espacios",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"sku\": \"sku con espacios\", \"name\": \"X\", \"unit\": \"U\", \"retail_price\": -5 }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "5. Listar productos activos",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products"
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. Consultar un producto",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/products/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products",
+            "{{productId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "7. Actualizar (PUT): solo cambia lo que se envía. El SKU NO se puede cambiar.",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/products/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products",
+            "{{productId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"retail_price\": \"17500\", \"lot\": \"L-2026-10-B\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "8. Entrada de 10 unidades (RECEIPT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"RECEIPT\", \"quantity\": 10, \"reference\": \"FAC-PROV-1001\", \"lot\": \"L-2026-10-B\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "9. Salida de 4 (SHIPMENT) -> quedan 6",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"SHIPMENT\", \"quantity\": 4, \"reference\": \"VENTA-0001\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "10. ERROR esperado 409: salida de 15 cuando hay 6 (nunca negativo)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"SHIPMENT\", \"quantity\": 15 }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "11. Reservar 2 (pasan de disponible a reservado)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"RESERVATION\", \"quantity\": 2, \"reference\": \"PEDIDO-77\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "12. Liberar la reserva",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"RELEASE\", \"quantity\": 2, \"reference\": \"PEDIDO-77 cancelado\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "13. Ajuste por desfase: el conteo físico dio 1 unidad menos -> alerta DISCREPANCY",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"ADJUSTMENT\", \"quantity\": -1, \"reference\": \"Conteo físico estante A3\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "14. Vender todo lo que queda (5) -> alerta OUT_OF_STOCK automática",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"SHIPMENT\", \"quantity\": 5, \"reference\": \"VENTA-0002\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "15. ERROR esperado 422: cantidad 0",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"RECEIPT\", \"quantity\": 0 }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "16. Historial de movimientos (kardex), el más reciente primero",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/{{productId}}/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "{{productId}}",
+            "movements"
+          ]
+        }
+      }
+    },
+    {
+      "name": "17. Alertas automáticas",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/alerts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "alerts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "18. Primera lectura -> X-Cache: MISS (vino de PostgreSQL y se guardó en Redis)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "{{productId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "19. Repetir enseguida -> X-Cache: HIT (vino de Redis)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "{{productId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "20. Un movimiento borra la clave del caché...",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"RECEIPT\", \"quantity\": 3 }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "21. ...así que la siguiente lectura vuelve a ser MISS y trae el dato nuevo",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "{{productId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "22. Métricas: hits, misses, hit ratio y consultas SQL",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/metrics",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "metrics"
+          ]
+        }
+      }
+    },
+    {
+      "name": "23. Reiniciar contadores (antes de un experimento)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/metrics/reset",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "metrics",
+            "reset"
+          ]
+        }
+      }
+    },
+    {
+      "name": "24. ERROR esperado 409: no se puede dar de baja con existencias (quedan 3)",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/products/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products",
+            "{{productId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "25. Sacar las 3 unidades...",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/inventory/movements",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "inventory",
+            "movements"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"product_id\": {{productId}}, \"type\": \"SHIPMENT\", \"quantity\": 3 }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "26. ...y ahora sí: 204 No Content. El historial se conserva.",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/products/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products",
+            "{{productId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "27. Ver también los productos dados de baja",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/products?include_inactive=true",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products"
+          ],
+          "query": [
+            {
+              "key": "include_inactive",
+              "value": "true"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "28. Pedir un reporte de inventario valorizado -> 202 Accepted",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/reports",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "reports"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"type\": \"STOCK_VALUATION\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 202) { pm.collectionVariables.set('jobId', pm.response.json().job_id); }"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "29. Consultar el trabajo (PENDING -> PROCESSING -> COMPLETED)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/reports/jobs/{{jobId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "reports",
+            "jobs",
+            "{{jobId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "30. Descargar el resultado en CSV",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/reports/jobs/{{jobId}}/download",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "reports",
+            "jobs",
+            "{{jobId}}",
+            "download"
+          ]
+        }
+      }
+    },
+    {
+      "name": "31. Reporte de movimientos y ventas en un rango de fechas",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/reports",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "reports"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"type\": \"MOVEMENTS_SUMMARY\", \"params\": { \"date_from\": \"2026-11-01\", \"date_to\": \"2026-11-30\" } }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "32. ERROR esperado 422: rango de fechas al revés",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/reports",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "reports"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"type\": \"MOVEMENTS_SUMMARY\", \"params\": { \"date_from\": \"2026-12-01\", \"date_to\": \"2026-11-01\" } }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "33. Ver eventos pendientes de publicar (outbox) y la última secuencia",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/metrics",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "metrics"
+          ]
+        }
+      }
+    },
+    {
+      "name": "34. Trazabilidad: enviar tu propio correlation_id (aparece en los logs de la API y los workers)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Correlation-ID",
+            "value": "COR-20261117-DEMO0001"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8001"
+    },
+    {
+      "key": "productId",
+      "value": "1"
+    },
+    {
+      "key": "jobId",
+      "value": ""
+    }
+  ]
+}

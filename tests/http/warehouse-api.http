@@ -1,0 +1,204 @@
+### =====================================================================
+### Colección de pruebas HTTP — Bodega (Fase 1 + Fase 2)
+###
+### Cómo usarla: en VS Code instala la extensión "REST Client" (Huachao Mao),
+### abre este archivo y haz clic en "Send Request" sobre cada petición.
+### (IntelliJ/PyCharm también la entienden.) Hay versión Postman en esta carpeta.
+###
+### Requisito: la bodega corriendo
+###   docker compose -f basic-docker-compose.yml up -d --build
+### =====================================================================
+
+@baseUrl = http://localhost:8001
+
+### 1. Salud de la API (PostgreSQL y Redis)
+GET {{baseUrl}}/health
+
+### ---------------------------------------------------------------------
+### PRODUCTOS
+### ---------------------------------------------------------------------
+
+### 2. Crear producto (su inventario inicia en 0). Si ya corriste la colección, cambia el SKU.
+# @name crearProducto
+POST {{baseUrl}}/products
+Content-Type: application/json
+
+{
+  "sku": "DEMO-GUANTE-001",
+  "name": "Guantes de carnaza",
+  "description": "Par de guantes para carga",
+  "category": "EPP",
+  "unit": "PAR",
+  "supplier": "Seguridad Industrial del Valle",
+  "lot": "L-2026-10-A",
+  "supplier_cost": "9000",
+  "retail_price": "16000",
+  "wholesale_price": "13000"
+}
+
+### Guardamos el id del producto creado para las siguientes peticiones
+@productId = {{crearProducto.response.body.id}}
+
+### 3. ERROR esperado 409: SKU duplicado
+POST {{baseUrl}}/products
+Content-Type: application/json
+
+{ "sku": "DEMO-GUANTE-001", "name": "Otro", "unit": "PAR" }
+
+### 4. ERROR esperado 422: precio negativo y SKU con espacios
+POST {{baseUrl}}/products
+Content-Type: application/json
+
+{ "sku": "sku con espacios", "name": "X", "unit": "U", "retail_price": -5 }
+
+### 5. Listar productos activos
+GET {{baseUrl}}/products
+
+### 6. Consultar un producto
+GET {{baseUrl}}/products/{{productId}}
+
+### 7. Actualizar (PUT): solo cambia lo que se envía. El SKU NO se puede cambiar.
+PUT {{baseUrl}}/products/{{productId}}
+Content-Type: application/json
+
+{ "retail_price": "17500", "lot": "L-2026-10-B" }
+
+### ---------------------------------------------------------------------
+### INVENTARIO (Fase 1: reglas + transacción)
+### ---------------------------------------------------------------------
+
+### 8. Entrada de 10 unidades (RECEIPT)
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "RECEIPT", "quantity": 10, "reference": "FAC-PROV-1001", "lot": "L-2026-10-B" }
+
+### 9. Salida de 4 (SHIPMENT) -> quedan 6
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "SHIPMENT", "quantity": 4, "reference": "VENTA-0001" }
+
+### 10. ERROR esperado 409: salida de 15 cuando hay 6 (nunca negativo)
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "SHIPMENT", "quantity": 15 }
+
+### 11. Reservar 2 (pasan de disponible a reservado)
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "RESERVATION", "quantity": 2, "reference": "PEDIDO-77" }
+
+### 12. Liberar la reserva
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "RELEASE", "quantity": 2, "reference": "PEDIDO-77 cancelado" }
+
+### 13. Ajuste por desfase: el conteo físico dio 1 unidad menos -> alerta DISCREPANCY
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "ADJUSTMENT", "quantity": -1, "reference": "Conteo físico estante A3" }
+
+### 14. Vender todo lo que queda (5) -> alerta OUT_OF_STOCK automática
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "SHIPMENT", "quantity": 5, "reference": "VENTA-0002" }
+
+### 15. ERROR esperado 422: cantidad 0
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "RECEIPT", "quantity": 0 }
+
+### 16. Historial de movimientos (kardex), el más reciente primero
+GET {{baseUrl}}/inventory/{{productId}}/movements
+
+### 17. Alertas automáticas
+GET {{baseUrl}}/alerts
+
+### ---------------------------------------------------------------------
+### CACHÉ (Fase 2) — mira la cabecera X-Cache de la respuesta
+### ---------------------------------------------------------------------
+
+### 18. Primera lectura -> X-Cache: MISS (vino de PostgreSQL y se guardó en Redis)
+GET {{baseUrl}}/inventory/{{productId}}
+
+### 19. Repetir enseguida -> X-Cache: HIT (vino de Redis)
+GET {{baseUrl}}/inventory/{{productId}}
+
+### 20. Un movimiento borra la clave del caché...
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "RECEIPT", "quantity": 3 }
+
+### 21. ...así que la siguiente lectura vuelve a ser MISS y trae el dato nuevo
+GET {{baseUrl}}/inventory/{{productId}}
+
+### 22. Métricas: hits, misses, hit ratio y consultas SQL
+GET {{baseUrl}}/metrics
+
+### 23. Reiniciar contadores (antes de un experimento)
+POST {{baseUrl}}/metrics/reset
+
+### ---------------------------------------------------------------------
+### BAJA DE PRODUCTO (borrado lógico)
+### ---------------------------------------------------------------------
+
+### 24. ERROR esperado 409: no se puede dar de baja con existencias (quedan 3)
+DELETE {{baseUrl}}/products/{{productId}}
+
+### 25. Sacar las 3 unidades...
+POST {{baseUrl}}/inventory/movements
+Content-Type: application/json
+
+{ "product_id": {{productId}}, "type": "SHIPMENT", "quantity": 3 }
+
+### 26. ...y ahora sí: 204 No Content. El historial se conserva.
+DELETE {{baseUrl}}/products/{{productId}}
+
+### 27. Ver también los productos dados de baja
+GET {{baseUrl}}/products?include_inactive=true
+
+### ---------------------------------------------------------------------
+### REPORTES ASÍNCRONOS (Fase 3) — la API responde 202 y un worker hace el trabajo
+### ---------------------------------------------------------------------
+
+### 28. Pedir un reporte de inventario valorizado -> 202 Accepted
+# @name pedirReporte
+POST {{baseUrl}}/reports
+Content-Type: application/json
+
+{ "type": "STOCK_VALUATION" }
+
+@jobId = {{pedirReporte.response.body.job_id}}
+
+### 29. Consultar el trabajo (PENDING -> PROCESSING -> COMPLETED)
+GET {{baseUrl}}/reports/jobs/{{jobId}}
+
+### 30. Descargar el resultado en CSV
+GET {{baseUrl}}/reports/jobs/{{jobId}}/download
+
+### 31. Reporte de movimientos y ventas en un rango de fechas
+POST {{baseUrl}}/reports
+Content-Type: application/json
+
+{ "type": "MOVEMENTS_SUMMARY", "params": { "date_from": "2026-11-01", "date_to": "2026-11-30" } }
+
+### 32. ERROR esperado 422: rango de fechas al revés
+POST {{baseUrl}}/reports
+Content-Type: application/json
+
+{ "type": "MOVEMENTS_SUMMARY", "params": { "date_from": "2026-12-01", "date_to": "2026-11-01" } }
+
+### 33. Ver eventos pendientes de publicar (outbox) y la última secuencia
+GET {{baseUrl}}/metrics
+
+### 34. Trazabilidad: enviar tu propio correlation_id (aparece en los logs de la API y los workers)
+GET {{baseUrl}}/health
+X-Correlation-ID: COR-20261117-DEMO0001

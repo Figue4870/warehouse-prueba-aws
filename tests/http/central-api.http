@@ -1,0 +1,163 @@
+### =====================================================================
+### Colección de pruebas HTTP — Plataforma CENTRAL (Fases 6 y 7)
+###
+### VS Code + extensión "REST Client": clic en "Send Request" sobre cada petición.
+### Requisito: la central y las bodegas corriendo
+###   .\manage.ps1 start all          (Linux/EC2: ./manage_warehouse.sh start all)
+### Para tener datos, crea productos y movimientos con warehouse-api.http en
+### las bodegas (8001, 8002, 8003) usando el MISMO SKU.
+### =====================================================================
+
+@central = http://localhost:8090
+@sku = DEMO-GUANTE-001
+
+### 1. Salud: base de datos y cuántas bodegas están ONLINE
+GET {{central}}/health
+
+### ---------------------------------------------------------------------
+### ESTADO DE LAS BODEGAS (heartbeats + watermark)
+### ---------------------------------------------------------------------
+
+### 2. Todas las bodegas: ONLINE/OFFLINE, eventos faltantes, última sincronización
+GET {{central}}/warehouses
+
+### 3. Una bodega
+GET {{central}}/warehouses/WH-002
+
+### ---------------------------------------------------------------------
+### INVENTARIO GLOBAL
+### ---------------------------------------------------------------------
+
+### 4. Alternativa B (recomendada): modelo de lectura. Rápida y responde aunque una bodega esté caída
+GET {{central}}/global/inventory/{{sku}}
+
+### 5. Alternativa A: pregunta EN VIVO a cada bodega (dato exacto, pero lenta e incompleta si una no responde)
+GET {{central}}/global/inventory/{{sku}}/live
+
+### 6. Todos los SKU con su total por bodega
+GET {{central}}/global/inventory?limit=50
+
+### 7. Catálogo global
+GET {{central}}/global/products
+
+### 8. Alertas de todas las bodegas (agotados, discrepancias)
+GET {{central}}/global/alerts
+
+### 9. Totales de la empresa
+GET {{central}}/global/summary
+
+### ---------------------------------------------------------------------
+### REPORTES GLOBALES (consultas sobre el modelo de lectura)
+### ---------------------------------------------------------------------
+
+### 10. Stock y valor de cada SKU en cada bodega
+GET {{central}}/reports/stock-by-warehouse
+
+### 11. Ventas por día y bodega (últimos 30 días)
+GET {{central}}/reports/sales-by-day?days=30
+
+### 12. Productos más vendidos
+GET {{central}}/reports/top-products?days=30&limit=10
+
+### 13. Movimientos por bodega y tipo
+GET {{central}}/reports/movements-by-type?days=30
+
+### ---------------------------------------------------------------------
+### SINCRONIZACIÓN (red de seguridad contra pérdida)
+### ---------------------------------------------------------------------
+
+### 14. Últimas sincronizaciones automáticas (SNAPSHOT y CATCH_UP)
+GET {{central}}/sync/runs
+
+### 15. Forzar ya un catch-up (pedir a la bodega los eventos que falten)
+POST {{central}}/sync/warehouses/WH-001/catch-up
+
+### 16. Forzar una resincronización total (snapshot)
+POST {{central}}/sync/warehouses/WH-001/snapshot
+
+### ---------------------------------------------------------------------
+### LO QUE LA BODEGA OFRECE A LA CENTRAL (endpoints /sync de cada bodega)
+### ---------------------------------------------------------------------
+
+### 17. Eventos de WH-001 después de la secuencia 0 (lo que usa el catch-up)
+GET http://localhost:8001/sync/events?after_sequence=0&limit=20
+
+### 18. Foto completa de WH-001 (lo que usa el snapshot)
+GET http://localhost:8001/sync/snapshot
+
+### 19. Saldo por SKU, en vivo (lo que usa la alternativa A)
+GET http://localhost:8001/inventory/by-sku/{{sku}}
+
+### ---------------------------------------------------------------------
+### FASE 6: TRANSFERENCIAS (Saga). Caso de la guía: WH-001 = 100, WH-002 = 20, transferir 30
+### (tablero con todo esto: http://localhost:8090/dashboard)
+### ---------------------------------------------------------------------
+
+### 20. Pedir una transferencia: responde 202 {"transfer_id": "TR-000001", "status": "PROCESSING"}
+###     Repetir con la MISMA Idempotency-Key devuelve la misma transferencia (no crea otra)
+# @name transferir
+POST {{central}}/transfers
+Content-Type: application/json
+Idempotency-Key: demo-transferencia-001
+
+{
+  "sku": "{{sku}}",
+  "source_warehouse_id": "WH-001",
+  "destination_warehouse_id": "WH-002",
+  "quantity": 30
+}
+
+### 21. Estado e historial paso a paso (REQUESTED -> ... -> COMPLETED)
+GET {{central}}/transfers/{{transferir.response.body.transfer_id}}
+
+### 22. Experimento: fallar DESPUÉS de reservar (el destino rechaza) -> compensación RESERVATION_RELEASED
+POST {{central}}/transfers
+Content-Type: application/json
+
+{
+  "sku": "{{sku}}",
+  "source_warehouse_id": "WH-001",
+  "destination_warehouse_id": "WH-002",
+  "quantity": 5,
+  "simulate_failure": "DESTINATION_REJECTS"
+}
+
+### 23. Experimento: timeout corto (apaga antes command_worker_WH-002 con docker stop)
+POST {{central}}/transfers
+Content-Type: application/json
+
+{
+  "sku": "{{sku}}",
+  "source_warehouse_id": "WH-001",
+  "destination_warehouse_id": "WH-002",
+  "quantity": 5,
+  "timeout_seconds": 10
+}
+
+### 24. Transferencias recientes (filtro opcional ?state=COMPENSATING)
+GET {{central}}/transfers?limit=20
+
+### 25. Lo que hizo cada bodega en cada paso
+GET http://localhost:8001/transfer-operations
+###
+GET http://localhost:8002/transfer-operations
+
+### ---------------------------------------------------------------------
+### REPORTES CON ATHENA (en AWS; localmente responde 503 y los datos quedan en exports/)
+### ---------------------------------------------------------------------
+
+### 26. Reportes disponibles y si Athena está configurado
+GET {{central}}/reports/athena
+
+### 27. Qué se ha exportado a S3 y qué falta
+GET {{central}}/reports/athena/export-status
+
+### 28. Ver el SQL de un reporte
+GET {{central}}/reports/athena/ventas_por_dia/sql?days=30
+
+### 29. Ejecutarlo en Athena (202) ...
+# @name athena
+POST {{central}}/reports/athena/ventas_por_dia?days=30
+
+### 30. ... y consultar el resultado (repetir hasta SUCCEEDED)
+GET {{central}}{{athena.response.body.status_url}}

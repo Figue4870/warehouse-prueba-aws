@@ -1,0 +1,38 @@
+#!/bin/bash
+# =====================================================================
+# Arranque automático de ${node_label} (generado por Terraform).
+# Ver el progreso:  sudo tail -f /var/log/warehouse-bootstrap.log
+# =====================================================================
+set -euxo pipefail
+exec > >(tee -a /var/log/warehouse-bootstrap.log) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y docker.io docker-compose-v2 git curl
+systemctl enable --now docker
+usermod -aG docker ubuntu
+
+APP_DIR=/opt/warehouse-platform
+if [ ! -d "$APP_DIR/.git" ]; then
+  git clone --branch "${repo_branch}" "${repo_url}" "$APP_DIR"
+fi
+cd "$APP_DIR"
+
+# Valores propios de ESTA máquina: sobrescriben a los del .env del repositorio
+cat > docker/components/${component}/runtime.env <<'RUNTIME_ENV'
+# Generado por Terraform al crear la máquina
+%{ for key, value in runtime_env ~}
+${key}=${value}
+%{ endfor ~}
+RUNTIME_ENV
+%{ if advertise_port > 0 ~}
+
+# Fase 7: la central llamará a esta bodega por su IP PRIVADA (dentro de la VPC)
+TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+PRIVATE_IP=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+echo "ADVERTISED_API_URL=http://$${PRIVATE_IP}:${advertise_port}" >> docker/components/${component}/runtime.env
+%{ endif ~}
+
+chown -R ubuntu:ubuntu "$APP_DIR"
+bash manage_warehouse.sh start ${component}
+echo "${node_label} lista"

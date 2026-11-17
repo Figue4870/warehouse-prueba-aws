@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plataforma Central</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --border:#334155; --text:#f8fafc; --muted:#94a3b8;
+          --blue:#38bdf8; --green:#4ade80; --red:#f87171; --yellow:#fde047; --violet:#a78bfa; }
+  * { box-sizing:border-box; margin:0; padding:0; font-family:'Segoe UI', system-ui, sans-serif; }
+  body { background:var(--bg); color:var(--text); padding:1.5rem; }
+  header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;
+           border-bottom:1px solid var(--border); padding-bottom:1rem; margin-bottom:1.5rem; }
+  .sub { color:var(--muted); font-size:.88rem; margin-top:.25rem; }
+  .grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:1.2rem; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1.2rem; min-width:0; }
+  .wide { grid-column:span 2; }
+  h2 { font-size:1.15rem; border-left:4px solid var(--blue); padding-left:.5rem; margin-bottom:.9rem; }
+  .row { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; }
+  .badge { padding:.3rem .7rem; border-radius:999px; font-size:.78rem; font-weight:700; display:inline-block; }
+  .ok { background:#166534; color:var(--green); } .bad { background:#991b1b; color:var(--red); }
+  .warn { background:#854d0e; color:var(--yellow); } .info { background:#1e3a8a; color:var(--blue); }
+  .violet { background:#4c1d95; color:var(--violet); }
+  .whs { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px,1fr)); gap:.8rem; }
+  .wh { border:1px solid var(--border); border-radius:10px; padding:.8rem; }
+  .wh b { font-size:1.05rem; } .wh small { color:var(--muted); display:block; margin-top:.3rem; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { text-align:left; padding:.5rem; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .scroll { overflow-x:auto; }
+  td:first-child, .nowrap { white-space:nowrap; }
+  input, select { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:.55rem; font-size:.95rem; width:100%; min-width:0; }
+  input[type=checkbox] { width:auto; }
+  label { color:var(--muted); font-size:.82rem; display:flex; flex-direction:column; gap:.25rem; min-width:0; }
+  .form { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:.6rem; margin-bottom:.8rem; }
+  button { background:var(--blue); color:var(--bg); border:0; border-radius:6px; padding:.55rem 1rem; font-weight:700; cursor:pointer; }
+  button.ghost { background:var(--border); color:var(--text); }
+  button:hover { filter:brightness(1.1); }
+  button:disabled { opacity:.45; cursor:not-allowed; filter:none; }
+  .muted { color:var(--muted); } .msg { margin-top:.5rem; font-size:.88rem; min-height:1.2rem; }
+  .timeline { list-style:none; border-left:2px solid var(--border); margin:.6rem 0 0 .4rem; padding-left:.9rem; }
+  .timeline li { margin-bottom:.55rem; font-size:.86rem; } .timeline li b { color:var(--blue); }
+  tr.click { cursor:pointer; } tr.click:hover { background:#0b1222; }
+  @media (max-width: 860px) { .grid { grid-template-columns:1fr; } .wide { grid-column:auto; } .form { grid-template-columns:1fr 1fr; } body { padding:1rem; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Plataforma Central</h1>
+    <div class="sub">CQRS (Fase 7) · Saga de transferencias (Fase 6) · Reportes (modelo de lectura y Athena)</div>
+  </div>
+  <div class="row">
+    <span id="health" class="badge warn">conectando…</span>
+    <label style="flex-direction:row;align-items:center"><input type="checkbox" id="auto" checked> actualizar cada 5 s</label>
+    <a href="/docs" class="badge info" style="text-decoration:none">API /docs</a>
+  </div>
+</header>
+
+<div class="grid">
+  <section class="card wide">
+    <h2>Bodegas</h2>
+    <div id="warehouses" class="whs"><span class="muted">Cargando…</span></div>
+  </section>
+
+  <section class="card">
+    <h2>Inventario global <span class="muted" style="font-size:.8rem">(consistencia eventual)</span></h2>
+    <div class="scroll"><table id="inventory"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Nueva transferencia (Saga)</h2>
+    <div class="form">
+      <label>SKU <input id="t-sku" placeholder="P-001"></label>
+      <label>Origen <select id="t-src"></select></label>
+      <label>Destino <select id="t-dst"></select></label>
+      <label>Cantidad <input id="t-qty" type="number" min="1" value="10"></label>
+      <label>Plazo por paso (s) <input id="t-timeout" type="number" min="5" placeholder="60"></label>
+      <label>Falla simulada
+        <select id="t-sim"><option value="">ninguna</option><option value="SOURCE_REJECTS">el origen rechaza</option>
+        <option value="DESTINATION_REJECTS">el destino rechaza</option></select></label>
+    </div>
+    <button id="t-send">Transferir</button>
+    <div id="t-msg" class="msg muted"></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Transferencias</h2>
+    <div class="scroll"><table id="transfers"></table></div>
+    <div id="detail"></div>
+  </section>
+
+  <section class="card">
+    <h2>Reportes (modelo de lectura)</h2>
+    <div class="row" style="margin-bottom:.6rem">
+      <button class="ghost" data-report="/reports/top-products?days=30">Top productos</button>
+      <button class="ghost" data-report="/reports/sales-by-day?days=30">Ventas por día</button>
+      <button class="ghost" data-report="/reports/movements-by-type?days=30">Movimientos por tipo</button>
+    </div>
+    <div class="scroll"><table id="report"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Reportes con Athena</h2>
+    <div id="athena-state" class="muted" style="margin-bottom:.6rem">Cargando…</div>
+    <div id="athena-buttons" class="row" style="margin-bottom:.6rem"></div>
+    <div id="athena-msg" class="msg muted"></div>
+    <div class="scroll"><table id="athena"></table></div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const STATE_CLASS = { COMPLETED:"ok", FAILED:"bad", RESERVATION_RELEASED:"warn", COMPENSATING:"warn", REQUESTED:"info",
+                      RESERVING_SOURCE:"info", SOURCE_RESERVED:"info", IN_TRANSIT:"violet", DESTINATION_RECEIVED:"violet" };
+const ago = (iso) => { if (!iso) return "—"; const s = Math.round((Date.now() - new Date(iso)) / 1000); return s < 60 ? `${s} s` : `${Math.round(s/60)} min`; };
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const body = response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text();
+  if (!response.ok) throw new Error(body?.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : response.status);
+  return body;
+}
+
+function table(el, columns, rows) {
+  if (!rows.length) { el.innerHTML = `<tr><td class="muted">Sin datos</td></tr>`; return; }
+  el.innerHTML = `<tr>${columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>` +
+    rows.map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`).join("");
+}
+
+async function loadHealth() {
+  try {
+    const h = await api("/health");
+    $("health").className = "badge " + (h.warehouses_online === h.warehouses_total ? "ok" : "warn");
+    $("health").textContent = `central OK · ${h.warehouses_online}/${h.warehouses_total} bodegas en línea`;
+  } catch (e) { $("health").className = "badge bad"; $("health").textContent = "central sin base de datos"; }
+}
+
+async function loadWarehouses() {
+  const list = await api("/warehouses");
+  $("warehouses").innerHTML = list.map((w) => `
+    <div class="wh"><b>${esc(w.warehouse_id)}</b>
+      <span class="badge ${w.status === "ONLINE" ? "ok" : w.status === "OFFLINE" ? "bad" : "warn"}">${esc(w.status)}</span>
+      <small>${esc(w.note)}</small>
+      <small>eventos: ${esc(w.watermark_sequence)} / ${esc(w.reported_sequence)} · contacto hace ${ago(w.last_heartbeat_at)}</small>
+    </div>`).join("") || `<span class="muted">Ninguna bodega ha enviado heartbeats todavía</span>`;
+  for (const id of ["t-src", "t-dst"]) {
+    const select = $(id), current = select.value;
+    select.innerHTML = list.map((w) => `<option>${esc(w.warehouse_id)}</option>`).join("");
+    if (current) select.value = current;
+  }
+  if (!$("t-dst").dataset.touched && list.length > 1) $("t-dst").selectedIndex = 1;
+}
+
+async function loadInventory() {
+  const data = await api("/global/inventory?limit=50");
+  const whs = [...new Set(data.items.flatMap((i) => Object.keys(i.by_warehouse)))].sort();
+  table($("inventory"), ["SKU", "Producto", ...whs, "Total", "Reservado"],
+        data.items.map((i) => [i.sku, i.name, ...whs.map((w) => i.by_warehouse[w] ?? "—"), i.total_quantity, i.total_reserved]));
+}
+
+async function loadTransfers() {
+  const list = await api("/transfers?limit=12");
+  const el = $("transfers");
+  if (!list.length) { el.innerHTML = `<tr><td class="muted">Todavía no hay transferencias</td></tr>`; return; }
+  el.innerHTML = `<tr><th>ID</th><th>SKU</th><th>Ruta</th><th>Cant.</th><th>Estado</th><th>Detalle</th></tr>` +
+    list.map((t) => `<tr class="click" data-id="${esc(t.transfer_id)}"><td>${esc(t.transfer_id)}</td><td>${esc(t.sku)}</td>
+      <td>${esc(t.source_warehouse_id)} → ${esc(t.destination_warehouse_id)}</td><td>${esc(t.quantity)}</td>
+      <td><span class="badge ${STATE_CLASS[t.state] || "info"}">${esc(t.state)}</span>${t.needs_review ? ' <span class="badge bad">revisar</span>' : ""}</td>
+      <td class="muted">${esc(t.note)}</td></tr>`).join("");
+  el.querySelectorAll("tr.click").forEach((tr) => tr.onclick = () => showTransfer(tr.dataset.id));
+  if ($("detail").dataset.id) showTransfer($("detail").dataset.id);
+}
+
+async function showTransfer(id) {
+  const t = await api(`/transfers/${encodeURIComponent(id)}`);
+  $("detail").dataset.id = id;
+  $("detail").innerHTML = `<h3 style="margin-top:1rem">${esc(t.transfer_id)} · ${esc(t.state)}</h3>
+    <ul class="timeline">${t.history.map((h) => `<li><b>${esc(h.to)}</b> <span class="muted">${new Date(h.at).toLocaleTimeString()}
+      ${h.warehouse_id ? "· " + esc(h.warehouse_id) : ""}</span><br>${esc(h.detail)}</li>`).join("")}</ul>`;
+}
+
+$("t-dst").onchange = () => $("t-dst").dataset.touched = "1";
+$("t-send").onclick = async () => {
+  const body = { sku: $("t-sku").value.trim(), source_warehouse_id: $("t-src").value, destination_warehouse_id: $("t-dst").value,
+                 quantity: Number($("t-qty").value) };
+  if ($("t-timeout").value) body.timeout_seconds = Number($("t-timeout").value);
+  if ($("t-sim").value) body.simulate_failure = $("t-sim").value;
+  try {
+    // Idempotency-Key: si el usuario hace doble clic o se reintenta, NO se crean dos transferencias
+    const key = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    const t = await api("/transfers", { method:"POST", headers:{ "Content-Type":"application/json", "Idempotency-Key":key }, body:JSON.stringify(body) });
+    $("t-msg").textContent = `202 Accepted: ${t.transfer_id} (${t.status}). Mira cómo avanza abajo.`;
+    $("detail").dataset.id = t.transfer_id;
+    refresh();
+  } catch (e) { $("t-msg").textContent = "Error: " + e.message; }
+};
+
+document.querySelectorAll("[data-report]").forEach((b) => b.onclick = async () => {
+  const rows = await api(b.dataset.report);
+  const cols = rows.length ? Object.keys(rows[0]) : [];
+  table($("report"), cols, rows.map((r) => cols.map((c) => r[c])));
+});
+
+async function loadAthena() {
+  const info = await api("/reports/athena");
+  $("athena-state").innerHTML = info.configured
+    ? `Workgroup <b>${esc(info.workgroup)}</b> · base <b>${esc(info.database)}</b> · datos en ${esc(info.export_destination)}`
+    : `${esc(info.note)}<br>Destino del exportador: ${esc(info.export_destination)}`;
+  $("athena-buttons").innerHTML = info.reports.map((r) => `<button class="ghost" ${info.configured ? "" : "disabled"} data-athena="${esc(r.name)}" title="${esc(r.title)}">${esc(r.name)}</button>`).join("");
+  document.querySelectorAll("[data-athena]").forEach((b) => b.onclick = () => runAthena(b.dataset.athena));
+}
+
+async function runAthena(name) {
+  try {
+    const start = await api(`/reports/athena/${name}?days=30`, { method:"POST" });
+    $("athena-msg").textContent = `Consulta ${start.query_execution_id} enviada…`;
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const st = await api(start.status_url);
+      $("athena-msg").textContent = `${st.state}${st.data_scanned_bytes != null ? " · " + st.data_scanned_bytes + " bytes leídos" : ""}`;
+      if (st.state === "SUCCEEDED") { table($("athena"), st.columns, st.rows); return; }
+      if (["FAILED", "CANCELLED"].includes(st.state)) { $("athena-msg").textContent = `${st.state}: ${st.reason}`; return; }
+    }
+  } catch (e) { $("athena-msg").textContent = "Error: " + e.message; }
+}
+
+async function refresh() {
+  await loadHealth();
+  await Promise.allSettled([loadWarehouses(), loadInventory(), loadTransfers()]);
+}
+refresh(); loadAthena();
+setInterval(() => { if ($("auto").checked) refresh(); }, 5000);
+</script>
+</body>
+</html>

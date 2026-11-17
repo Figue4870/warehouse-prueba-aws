@@ -1,0 +1,14 @@
+# Finales de línea: los scripts que corren en Linux (EC2, contenedores) SIEMPRE con LF,
+# aunque se editen en Windows. Un .sh con CRLF falla en Linux ("bad interpreter").
+* text=auto
+*.sh      text eol=lf
+*.tftpl   text eol=lf
+*.tf      text eol=lf
+*.sql     text eol=lf
+*.conf    text eol=lf
+*.template text eol=lf
+Dockerfile text eol=lf
+*.env     text eol=lf
+.env      text eol=lf
+# Los scripts de PowerShell, con CRLF (Windows)
+*.ps1     text eol=crlf

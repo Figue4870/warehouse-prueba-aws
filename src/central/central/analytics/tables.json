@@ -1,0 +1,56 @@
+{
+  "_comentario": "Tablas de Athena. FUENTE ÚNICA: Terraform crea las tablas de Glue con estas columnas y el exportador escribe exactamente estos campos (tests/central/test_exporter.py lo verifica). Todas particionadas por dt=YYYY-MM-DD.",
+  "movements": {
+    "description": "Cada movimiento de inventario de todas las bodegas (kardex global)",
+    "columns": [
+      {"name": "event_id", "type": "string", "comment": "id del evento (único)"},
+      {"name": "warehouse_id", "type": "string", "comment": "bodega"},
+      {"name": "sequence", "type": "bigint", "comment": "secuencia del evento en su bodega"},
+      {"name": "movement_id", "type": "bigint", "comment": "id del movimiento en la bodega"},
+      {"name": "sku", "type": "string", "comment": "código universal del producto"},
+      {"name": "product_name", "type": "string", "comment": "nombre del producto"},
+      {"name": "category", "type": "string", "comment": "categoría"},
+      {"name": "type", "type": "string", "comment": "RECEIPT, SHIPMENT, ADJUSTMENT, RESERVATION, RELEASE, TRANSFER_OUT, TRANSFER_IN, RETURN"},
+      {"name": "quantity", "type": "int", "comment": "unidades"},
+      {"name": "quantity_after", "type": "int", "comment": "disponible después del movimiento"},
+      {"name": "reserved_after", "type": "int", "comment": "reservado después del movimiento"},
+      {"name": "unit_retail_price", "type": "string", "comment": "precio de venta (texto con 2 decimales)"},
+      {"name": "unit_supplier_cost", "type": "string", "comment": "costo del proveedor (texto con 2 decimales)"},
+      {"name": "lot", "type": "string", "comment": "lote"},
+      {"name": "reference", "type": "string", "comment": "factura, guía o id de transferencia (TR-...)"},
+      {"name": "occurred_at", "type": "string", "comment": "cuándo ocurrió (ISO-8601 UTC)"}
+    ]
+  },
+  "transfers": {
+    "description": "Transferencias terminadas (Saga, Fase 6)",
+    "columns": [
+      {"name": "transfer_id", "type": "string", "comment": "TR-000001"},
+      {"name": "sku", "type": "string", "comment": "producto"},
+      {"name": "source_warehouse_id", "type": "string", "comment": "bodega origen"},
+      {"name": "destination_warehouse_id", "type": "string", "comment": "bodega destino"},
+      {"name": "quantity", "type": "int", "comment": "unidades"},
+      {"name": "final_state", "type": "string", "comment": "COMPLETED, FAILED o RESERVATION_RELEASED"},
+      {"name": "status", "type": "string", "comment": "COMPLETED o FAILED"},
+      {"name": "failure_reason", "type": "string", "comment": "por qué falló"},
+      {"name": "needs_review", "type": "boolean", "comment": "requiere revisión manual"},
+      {"name": "created_at", "type": "string", "comment": "cuándo se pidió (ISO-8601 UTC)"},
+      {"name": "finished_at", "type": "string", "comment": "cuándo terminó (ISO-8601 UTC)"},
+      {"name": "duration_seconds", "type": "double", "comment": "duración total"}
+    ]
+  },
+  "inventory": {
+    "description": "Fotos periódicas del inventario de todas las bodegas",
+    "columns": [
+      {"name": "snapshot_at", "type": "string", "comment": "cuándo se tomó la foto (ISO-8601 UTC)"},
+      {"name": "warehouse_id", "type": "string", "comment": "bodega"},
+      {"name": "sku", "type": "string", "comment": "producto"},
+      {"name": "product_name", "type": "string", "comment": "nombre"},
+      {"name": "category", "type": "string", "comment": "categoría"},
+      {"name": "quantity", "type": "int", "comment": "disponible"},
+      {"name": "reserved_quantity", "type": "int", "comment": "reservado"},
+      {"name": "retail_price", "type": "string", "comment": "precio de venta"},
+      {"name": "supplier_cost", "type": "string", "comment": "costo"},
+      {"name": "warehouse_status", "type": "string", "comment": "ONLINE u OFFLINE cuando se tomó la foto"}
+    ]
+  }
+}

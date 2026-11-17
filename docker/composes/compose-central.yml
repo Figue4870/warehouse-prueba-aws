@@ -1,0 +1,160 @@
+# =====================================================================
+# PLATAFORMA CENTRAL (Fases 6 y 7) — CQRS, Saga de transferencias y reportes
+#
+#   ./manage_warehouse.sh start central      (o .\manage.ps1 start central)
+#
+#   central_postgres        modelo de lectura + estado de las transferencias (db/central_schema.sql)
+#   central_rabbitmq        eventos de TODAS las bodegas y comandos hacia ellas
+#   central_api             API global + tablero: http://localhost:${CENTRAL_PORT}/docs y /dashboard
+#   central_projector       aplica los eventos al modelo de lectura (Fase 7)
+#   central_reconciler      detecta huecos y bodegas caídas; resincroniza (Fase 7)
+#   central_saga            orquestador: avanza cada transferencia con las respuestas (Fase 6)
+#   central_command_relay   publica los comandos de la Saga y vigila los plazos (Fase 6)
+#   central_exporter        copia el modelo de lectura a S3 para Athena (local: carpeta exports/)
+#
+# Red "warehouse_platform" (compartida con las bodegas): por ella los forwarders
+# de las bodegas llegan a central_rabbitmq y la central llega a los balanceadores
+# de las bodegas (lb_warehouse_WH-00X). Los scripts la crean si no existe.
+# =====================================================================
+
+x-central: &central
+  build:
+    context: ../../src
+    dockerfile: central/Dockerfile
+  environment: &central-env
+    DATABASE_URL: postgresql://${CENTRAL_DB_USER:-postgres}:${CENTRAL_DB_PASSWORD:-postgres}@central_postgres:5432/${CENTRAL_DB_NAME:-central_db}
+    AUTO_CREATE_TABLES: "false"
+    AMQP_URL: amqp://${CENTRAL_RABBIT_USER:-platform}:${CENTRAL_RABBIT_PASSWORD:-platform}@central_rabbitmq:5672/%2F
+    ONLINE_AFTER_SECONDS: ${ONLINE_AFTER_SECONDS:-45}
+    # Opcional: "WH-001=http://...,WH-002=..." (normalmente se aprenden de los heartbeats)
+    WAREHOUSE_API_URLS: ${WAREHOUSE_API_URLS:-}
+    # Fase 6: Saga
+    SAGA_STEP_TIMEOUT_SECONDS: ${SAGA_STEP_TIMEOUT_SECONDS:-60}
+    SAGA_ALLOW_SIMULATION: ${SAGA_ALLOW_SIMULATION:-true}
+    # Reportes con Athena (en AWS los escribe Terraform en runtime.env; vacíos = solo local)
+    EXPORT_S3_BUCKET: ${EXPORT_S3_BUCKET:-}
+    EXPORT_DIR: /app/exports
+    EXPORT_INTERVAL_SECONDS: ${EXPORT_INTERVAL_SECONDS:-60}
+    EXPORT_SNAPSHOT_SECONDS: ${EXPORT_SNAPSHOT_SECONDS:-3600}
+    ATHENA_DATABASE: ${ATHENA_DATABASE:-warehouse_analytics}
+    ATHENA_WORKGROUP: ${ATHENA_WORKGROUP:-}
+    AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+  networks: [default, platform]
+  restart: unless-stopped
+
+services:
+  central_postgres:
+    image: postgres:15-alpine
+    container_name: central_postgres
+    environment:
+      POSTGRES_USER: ${CENTRAL_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${CENTRAL_DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${CENTRAL_DB_NAME:-central_db}
+    ports:
+      - "${CENTRAL_DB_PORT:-5440}:5432"
+    volumes:
+      - ../../db/central_schema.sql:/docker-entrypoint-initdb.d/01-central-schema.sql:ro
+      - ../../db:/db:ro
+      - central_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CENTRAL_DB_USER:-postgres} -d ${CENTRAL_DB_NAME:-central_db} -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  central_rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: central_rabbitmq
+    hostname: central-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${CENTRAL_RABBIT_USER:-platform}
+      RABBITMQ_DEFAULT_PASS: ${CENTRAL_RABBIT_PASSWORD:-platform}
+    ports:
+      - "${CENTRAL_RABBIT_PORT:-5680}:5672"        # en AWS: aquí se conectan los forwarders de las bodegas
+      - "${CENTRAL_RABBIT_MGMT_PORT:-15680}:15672" # consola web
+    volumes:
+      - central_rabbitdata:/var/lib/rabbitmq
+    networks: [default, platform]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  central_api:
+    <<: *central
+    container_name: central_api
+    environment:
+      <<: *central-env
+      INSTANCE_NAME: central-api
+    ports:
+      - "${CENTRAL_PORT:-8090}:8000"
+    depends_on:
+      central_postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  central_projector:
+    <<: *central
+    container_name: central_projector
+    command: ["python", "-m", "central.workers.projector"]
+    depends_on:
+      central_postgres:
+        condition: service_healthy
+      central_rabbitmq:
+        condition: service_healthy
+
+  central_reconciler:
+    <<: *central
+    container_name: central_reconciler
+    command: ["python", "-m", "central.workers.reconciler"]
+    depends_on:
+      central_postgres:
+        condition: service_healthy
+
+  # ---------------- Fase 6: Saga de transferencias ----------------
+  central_saga:
+    <<: *central
+    container_name: central_saga
+    command: ["python", "-m", "central.workers.saga"]
+    depends_on:
+      central_postgres:
+        condition: service_healthy
+      central_rabbitmq:
+        condition: service_healthy
+
+  central_command_relay:
+    <<: *central
+    container_name: central_command_relay
+    command: ["python", "-m", "central.workers.command_relay"]
+    depends_on:
+      central_postgres:
+        condition: service_healthy
+      central_rabbitmq:
+        condition: service_healthy
+
+  # ---------------- Reportes con Athena ----------------
+  central_exporter:
+    <<: *central
+    container_name: central_exporter
+    command: ["python", "-m", "central.workers.exporter"]
+    volumes:
+      - ../../exports:/app/exports         # sin AWS: los archivos quedan en la carpeta exports/ del repositorio
+    depends_on:
+      central_postgres:
+        condition: service_healthy
+
+networks:
+  platform:
+    name: warehouse_platform
+    external: true
+
+volumes:
+  central_pgdata:
+  central_rabbitdata:

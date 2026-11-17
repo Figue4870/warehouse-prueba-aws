@@ -1,0 +1,25 @@
+# =====================================================================
+# UNA sola bodega (WH-001) con todas sus piezas (Fases 1 a 7):
+#   PostgreSQL + Redis + RabbitMQ + 3 APIs + balanceador + workers + frontend + forwarder a la central
+#
+#   docker network create warehouse_platform      (UNA sola vez; red compartida con la central, Fase 7)
+#   docker compose -f basic-docker-compose.yml up -d --build
+#
+#   Sin la central (Fase 7) la bodega funciona igual: sus eventos esperan en la cola
+#   local wh.central-forward hasta que la central exista.
+#
+#   Página web:              http://localhost:8081
+#   API (balanceador):       http://localhost:8001/docs
+#   Consola de RabbitMQ:     http://localhost:15673
+#
+# Para levantar VARIAS bodegas usa los scripts (cada bodega en su propio proyecto):
+#   .\manage.ps1 start all          (Windows)
+#   ./manage_warehouse.sh start all  (Linux / Mac / EC2)
+# No mezcles este archivo con los scripts para WH-001: usan los mismos nombres de contenedor.
+# =====================================================================
+
+name: wh-001
+
+include:
+  - path: docker/composes/compose-warehouse.yml
+    env_file: docker/components/wh_001/.env
