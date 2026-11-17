@@ -95,12 +95,32 @@ def test_las_filas_tienen_exactamente_las_columnas_de_athena(movements, central_
     assert list(transfer_row(transfer)) == [c["name"] for c in TABLES["transfers"]["columns"]]
 
 
-def test_s3_put_object(monkeypatch):
+def test_s3_crea_el_bucket_si_no_existe_y_sube(monkeypatch):
     client = boto3.client("s3", region_name="us-east-1", aws_access_key_id="x", aws_secret_access_key="y")
     with Stubber(client) as stub:
+        stub.add_client_error("head_bucket", service_error_code="404", http_status_code=404, expected_params={"Bucket": "datos"})
+        stub.add_response("create_bucket", {"Location": "/datos"}, {"Bucket": "datos"})
+        stub.add_response("put_bucket_lifecycle_configuration", {}, {"Bucket": "datos", "LifecycleConfiguration": ANY})
         stub.add_response("put_object", {"ETag": '"abc"'}, {"Bucket": "datos", "Key": "movements/dt=2026-11-16/l.json",
                                                             "Body": ANY, "ContentType": "application/x-ndjson"})
-        S3Storage("datos", client).put("movements/dt=2026-11-16/l.json", b'{"a": 1}\n')
+        stub.add_response("put_object", {"ETag": '"abd"'}, {"Bucket": "datos", "Key": "movements/dt=2026-11-16/m.json",
+                                                            "Body": ANY, "ContentType": "application/x-ndjson"})
+        storage = S3Storage("datos", client, region="us-east-1")
+        storage.put("movements/dt=2026-11-16/l.json", b'{"a": 1}\n')
+        storage.put("movements/dt=2026-11-16/m.json", b'{"a": 2}\n')   # ya no vuelve a revisar el bucket
+        stub.assert_no_pending_responses()
+
+
+def test_s3_bucket_existente_o_ya_creado(monkeypatch):
+    client = boto3.client("s3", region_name="us-west-2", aws_access_key_id="x", aws_secret_access_key="y")
+    with Stubber(client) as stub:
+        stub.add_response("head_bucket", {}, {"Bucket": "datos"})
+        assert S3Storage("datos", client, region="us-west-2").ensure_bucket() is False
+        # Otra copia del exportador lo creó justo antes: no es un error
+        stub.add_client_error("head_bucket", service_error_code="404", http_status_code=404)
+        stub.add_client_error("create_bucket", service_error_code="BucketAlreadyOwnedByYou", http_status_code=409,
+                              expected_params={"Bucket": "datos", "CreateBucketConfiguration": {"LocationConstraint": "us-west-2"}})
+        assert S3Storage("datos", client, region="us-west-2").ensure_bucket() is False
         stub.assert_no_pending_responses()
 
 

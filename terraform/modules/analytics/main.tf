@@ -18,40 +18,22 @@ locals {
 }
 
 # ---------------------------------------------------------------- S3
-resource "aws_s3_bucket" "data" {
-  bucket_prefix = "${var.project_name}-datos-" # AWS completa el nombre (único en el mundo)
-  force_destroy = true                         # terraform destroy borra también los archivos (entorno de práctica)
-}
+# El bucket NO lo crea Terraform: en el AWS Academy Learner Lab una política de
+# la organización (SCP) prohíbe leer algunas configuraciones de S3
+# (s3:GetBucketObjectLockConfiguration) y el recurso de bucket de Terraform
+# siempre las lee después de crearlo ("AccessDenied ... explicit deny").
+#
+# Por eso el nombre se calcula aquí (único por cuenta) y lo crea el
+# central_exporter al arrancar, con el rol LabRole de la EC2 (ver
+# src/central/central/analytics/storage.py: S3Storage.ensure_bucket). S3 cifra
+# y bloquea el acceso público por defecto en los buckets nuevos.
+#
+# OJO: terraform destroy NO borra este bucket. Al terminar la práctica:
+# consola de AWS -> S3 -> el bucket -> Empty -> Delete.
+data "aws_caller_identity" "current" {}
 
-resource "aws_s3_bucket_public_access_block" "data" {
-  bucket                  = aws_s3_bucket.data.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "data" {
-  bucket = aws_s3_bucket.data.id
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "data" {
-  bucket = aws_s3_bucket.data.id
-  rule {
-    id     = "borrar-resultados-viejos-de-athena"
-    status = "Enabled"
-    filter {
-      prefix = "athena-results/"
-    }
-    expiration {
-      days = 7
-    }
-  }
+locals {
+  bucket = "${var.project_name}-datos-${data.aws_caller_identity.current.account_id}"
 }
 
 # ---------------------------------------------------------------- Glue (catálogo de tablas)
@@ -76,7 +58,7 @@ resource "aws_glue_catalog_table" "this" {
     "projection.dt.range"         = "2026-01-01,NOW"
     "projection.dt.interval"      = "1"
     "projection.dt.interval.unit" = "DAYS"
-    "storage.location.template"   = "s3://${aws_s3_bucket.data.bucket}/${each.key}/dt=$${dt}/"
+    "storage.location.template"   = "s3://${local.bucket}/${each.key}/dt=$${dt}/"
   }
 
   partition_keys {
@@ -85,7 +67,7 @@ resource "aws_glue_catalog_table" "this" {
   }
 
   storage_descriptor {
-    location      = "s3://${aws_s3_bucket.data.bucket}/${each.key}/"
+    location      = "s3://${local.bucket}/${each.key}/"
     input_format  = "org.apache.hadoop.mapred.TextInputFormat"
     output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
 
@@ -118,7 +100,7 @@ resource "aws_athena_workgroup" "this" {
     bytes_scanned_cutoff_per_query     = var.bytes_scanned_cutoff
 
     result_configuration {
-      output_location = "s3://${aws_s3_bucket.data.bucket}/athena-results/"
+      output_location = "s3://${local.bucket}/athena-results/"
       encryption_configuration {
         encryption_option = "SSE_S3"
       }

@@ -36,7 +36,7 @@ data "aws_subnets" "default" {
 # Ubuntu 24.04 LTS oficial (Canonical)
 data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["099720108477"]
+  owners      = ["099720109477"]
 
   filter {
     name   = "name"

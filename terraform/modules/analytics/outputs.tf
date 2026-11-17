@@ -1,5 +1,5 @@
 output "bucket" {
-  value = aws_s3_bucket.data.bucket
+  value = local.bucket
 }
 
 output "database" {
